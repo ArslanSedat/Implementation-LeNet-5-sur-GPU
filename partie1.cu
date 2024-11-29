@@ -88,6 +88,8 @@ int main() {
     C.lignes = n;
     C.colonnes = p;
 
+    float *cuda_A, *cuda_B, *cuda_C; 
+
     A.valeurs = (float*)malloc(n*p * sizeof(float));
     B.valeurs = (float*)malloc(n*p * sizeof(float));
     C.valeurs = (float*)malloc(n*p * sizeof(float));
@@ -121,8 +123,22 @@ int main() {
         debut = clock();
         blocks = 1;
         thread = i;
-        MatrixAddKernel<<<blocks, thread>>>(A.valeurs, B.valeurs, C.valeurs, n, p);
-        cudaDeviceSynchronize();
+
+        //(float*)malloc(n*p * sizeof(float));
+        cudaMalloc((void**)&cuda_A, n*p * sizeof(float));
+        cudaMalloc((void**)&cuda_B, n*p * sizeof(float));
+        cudaMalloc((void**)&cuda_C, n*p * sizeof(float));
+
+        cudaMemcpy(cuda_A, A.valeurs, sizeof(float) * n*p, cudaMemcpyHostToDevice);
+        cudaMemcpy(cuda_B, B.valeurs, sizeof(float) * n*p, cudaMemcpyHostToDevice);
+
+        MatrixAddKernel<<<blocks, thread>>>(cuda_A, cuda_B, cuda_C, n, p);
+
+        cudaMemcpy(C.valeurs, cuda_C, sizeof(float)*n*p, cudaMemcpyDeviceToHost);
+        cudaFree(cuda_A);
+        cudaFree(cuda_B);
+        cudaFree(cuda_C);
+        
         fin = clock();
         printf("\nTemps GPU avec n = %i,p = %i : blocks, thread : %i, %i : %.2f ms\n",n,p, blocks, thread,   (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
         if ((n+p) < maxaff) {
@@ -149,5 +165,6 @@ int main() {
     free(B.valeurs);
     free(C.valeurs);
 
+    cudaDeviceSynchronize();
     return 0;
 }
