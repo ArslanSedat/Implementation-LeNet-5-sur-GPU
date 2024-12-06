@@ -3,18 +3,19 @@
 #include <cuda_runtime.h>
 #include <time.h>
 
-// Structure pour représenter une matrice
+
 struct Matrice {
     float* valeurs;
     int lignes;
     int colonnes;
 };
 
-// Fonction pour initialiser une matrice aléatoirement
+
 void MatrixInit(float *M, int n, int p) {
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < p; j++) {
-            M[i*p + j] = (float)((double)rand() / RAND_MAX * 2 - 1); // Valeurs entre -1 et 1
+            M[i*p + j] = (float)(round((double)rand()/RAND_MAX  * 20 - 20));
+            //M[i*p + j] = (float)((double)rand() / RAND_MAX * 2 - 1);
         }
     }
 }
@@ -26,17 +27,19 @@ void MatrixInit0(float *M, int n, int p) {
         }
     }
 }
-// Fonction pour afficher une matrice
+
 void MatrixPrint(float *M, int n, int p) {
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < p; j++) {
-            printf("%10.4f ", M[i*p + j]);
+            printf("%10.2f ", M[i*p + j]);
         }
         printf("\n");
     }
 }
 
-// Fonction pour additionner deux matrices CPU
+
+//ADD 
+//ADD CPU
 void MatrixAdd(float *M1, float *M2, float *Mout, int n, int p) {
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < p; j++) {
@@ -44,36 +47,96 @@ void MatrixAdd(float *M1, float *M2, float *Mout, int n, int p) {
         }
     }
 }
-
-// Fonction kernel pour additionner deux matrices GPU
+//ADD GPU
 __global__ void MatrixAddKernel(float *M1, float *M2, float *Mout, int n, int p) {
-    //int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    //int idy = blockIdx.y * blockDim.y + threadIdx.y;
-    
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < p; j++) {
-            Mout[i*p + j] = M1[i*p + j] + M2[i*p + j];
-        }
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int maxtid = blockDim.x;
+
+    int size = n*p/maxtid ;
+
+    for (int i = (tid)*size; i < (tid+1)*size ; i++) { //tid * size_per_thread //((tid + 1) * size_per_thread)
+        if (i < n*p)
+            Mout[i] = M1[i] + M2[i]; //size; //tid * 100 + i;
     }
-    /*
-    for (int i = 0; i < n; i++) {
-        //if (i%threadIdx.x == 0)
-            for (int j = 0; j < p; j++) {
-                //if (true or i%blockIdx.x == 0)
-                    Mout[i*p + j] = M1[i*p + j] + M2[i*p + j];
-            }
-    }*/
-    //Mout[n*blockIdx.x + threadIdx.x ] = n*blockIdx.x + threadIdx.x;
-    //if (idx < n && idy < p) {
-    //    Mout[idx*p + idy] = M1[idx*p + idy] + M2[idx*p + idy];
-    //}
+}
+void addGPU(int blocks, int thread, float *M1, float *M2, float *Mout, int n, int p) {
+    float *cuda_A, *cuda_B, *cuda_C; 
+    
+    cudaMalloc((void**)&cuda_A, n*p * sizeof(float));
+    cudaMalloc((void**)&cuda_B, n*p * sizeof(float));
+    cudaMalloc((void**)&cuda_C, n*p * sizeof(float));
+
+    cudaMemcpy(cuda_A, M1, sizeof(float) * n*p, cudaMemcpyHostToDevice);
+    cudaMemcpy(cuda_B, M2, sizeof(float) * n*p, cudaMemcpyHostToDevice);
+
+    MatrixAddKernel<<<blocks, thread>>>(cuda_A, cuda_B, cuda_C, n, p);
+
+    cudaMemcpy(Mout, cuda_C, sizeof(float)*n*p, cudaMemcpyDeviceToHost);
+    cudaFree(cuda_A);
+    cudaFree(cuda_B);
+    cudaFree(cuda_C);
 }
 
-int main() {
+//MULTI
+//MULTI CPU
+void MatrixMulti(float *M1, float *M2, float *Mout, int n, int p) {
+    float temp;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < p; j++) {
+            float sum = 0.0f;
+            for (int k = 0; k < p; k++) {
+                sum += M1[i*n+k] * M2[k*n+j]; 
+            }
+            Mout[i*p + j] = sum;
+        }  
+    }
+}
+//MULTI GPU
+__global__ void MatrixMultiKernel(float *M1, float *M2, float *Mout, int n, int p) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int maxtid = blockDim.x;
+
+    int size = n*p/maxtid ;
+    float temp;
+    int i,j;
+
+    for (int kk = (tid)*size; kk < (tid+1)*size ; kk++) { //tid * size_per_thread //((tid + 1) * size_per_thread)
+        if (kk < n*p){
+            i = kk%p;
+            j = kk/p;
+            float sum = 0.0f;
+            for (int k = 0; k < p; k++) {
+                sum += M1[i*n+k] * M2[k*n+j]; 
+            }
+            Mout[i*p + j] = sum;
+        }   
+    }
+}
+void multiGPU(int blocks, int thread, float *M1, float *M2, float *Mout, int n, int p) {
+    float *cuda_A, *cuda_B, *cuda_C; 
+    
+    cudaMalloc((void**)&cuda_A, n*p * sizeof(float));
+    cudaMalloc((void**)&cuda_B, n*p * sizeof(float));
+    cudaMalloc((void**)&cuda_C, n*p * sizeof(float));
+
+    cudaMemcpy(cuda_A, M1, sizeof(float) * n*p, cudaMemcpyHostToDevice);
+    cudaMemcpy(cuda_B, M2, sizeof(float) * n*p, cudaMemcpyHostToDevice);
+
+    MatrixMultiKernel<<<blocks, thread>>>(cuda_A, cuda_B, cuda_C, n, p);
+
+    cudaMemcpy(Mout, cuda_C, sizeof(float)*n*p, cudaMemcpyDeviceToHost);
+    cudaFree(cuda_A);
+    cudaFree(cuda_B);
+    cudaFree(cuda_C);
+}
+
+int main(int argc, char *argv[]) {
+    int nn=atoi(argv[1]);
+    int pp=atoi(argv[1]);
     srand(time(NULL)); // Initialisation du générateur de nombres aléatoires
-    const int n = 5;
-    const int p = 5;
-    const int maxaff = 20;
+    const int n = nn;//10000;
+    const int p = pp;//10000;
+    const int maxaff = 10;
 
     int blocks = 1;
     int thread = 1;
@@ -94,10 +157,17 @@ int main() {
     B.valeurs = (float*)malloc(n*p * sizeof(float));
     C.valeurs = (float*)malloc(n*p * sizeof(float));
 
-    // Initialisation des matrices
+    //initialisation
+    MatrixInit(B.valeurs, n, p);
+    MatrixInit(A.valeurs, n, p);
+    //float source_array[] = {1, 2, 3, 14, 5, 6, 7, 8, 9};
+    //memcpy(A.valeurs, source_array, sizeof(source_array));
+
+    //float source_array2[] = {10,11,12,13,14,15,16,17,18};
+    //memcpy(B.valeurs, source_array2, sizeof(source_array));
+
+
     if ((n+p) < maxaff) {
-        MatrixInit(A.valeurs, n, p);
-        MatrixInit(B.valeurs, n, p);
         printf("Matrice A:\n");
         MatrixPrint(A.valeurs, n, p);
         printf("Matrice B:\n");
@@ -109,57 +179,64 @@ int main() {
     }
 
     // Addition des matrices résultat
+    printf("\n Addition : \n\n");
+    MatrixInit0(C.valeurs, n, p);
     debut = clock();
     MatrixAdd(A.valeurs, B.valeurs, C.valeurs, n, p);
     fin = clock();
-    printf("\n\nTemps CPU : %.2f ms\n", (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
-    printf("Résultat de l'addition CPU:\n");
+    printf("Temps CPU : %.2f ms\n", (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
     if ((n+p) < maxaff) 
+    {
+        printf("Résultat de l'addition CPU:\n");
         MatrixPrint(C.valeurs, n, p);
-
+    }
+        
     //MatrixAddGPU(A.valeurs, B.valeurs, C.valeurs, n, p);
     for (int i = 1; i <= n; i *= 2) {
         MatrixInit0(C.valeurs, n, p);
         debut = clock();
-        blocks = 1;
+        blocks = i;
         thread = i;
 
-        //(float*)malloc(n*p * sizeof(float));
-        cudaMalloc((void**)&cuda_A, n*p * sizeof(float));
-        cudaMalloc((void**)&cuda_B, n*p * sizeof(float));
-        cudaMalloc((void**)&cuda_C, n*p * sizeof(float));
+        addGPU(blocks, thread, A.valeurs, B.valeurs, C.valeurs, n, p);
 
-        cudaMemcpy(cuda_A, A.valeurs, sizeof(float) * n*p, cudaMemcpyHostToDevice);
-        cudaMemcpy(cuda_B, B.valeurs, sizeof(float) * n*p, cudaMemcpyHostToDevice);
-
-        MatrixAddKernel<<<blocks, thread>>>(cuda_A, cuda_B, cuda_C, n, p);
-
-        cudaMemcpy(C.valeurs, cuda_C, sizeof(float)*n*p, cudaMemcpyDeviceToHost);
-        cudaFree(cuda_A);
-        cudaFree(cuda_B);
-        cudaFree(cuda_C);
-        
         fin = clock();
-        printf("\nTemps GPU avec n = %i,p = %i : blocks, thread : %i, %i : %.2f ms\n",n,p, blocks, thread,   (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
+        printf("Temps GPU avec n = %i,p = %i : blocks, thread : %i, %i : %.2f ms\n",n,p, blocks, thread,   (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
         if ((n+p) < maxaff) {
             printf("Résultat de l'addition GPU:\n");
             MatrixPrint(C.valeurs, n, p);
         }
     }
-    /*
-    //MatrixAddGPU(A.valeurs, B.valeurs, C.valeurs, n, p);
-    debut = clock();
-    blocks = 100;
-    thread = 100;
-    MatrixAddKernel<<<blocks, thread>>>(A.valeurs, B.valeurs, C.valeurs, n, p);
-    cudaDeviceSynchronize();
-    fin = clock();
-    printf("\n\nTemps GPU blocks, thread : %i, %i : %.2f ms\n",blocks, thread, (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
-    printf("Résultat de l'addition GPU:\n");
-    if ((n+p) < maxaff) 
-        MatrixPrint(C.valeurs, n, p);
-    */
 
+    
+    // Multiplication des matrices résultat
+    printf("\nMultiplication : \n\n");
+    MatrixInit0(C.valeurs, n, p);
+    debut = clock();
+    MatrixMulti(A.valeurs, B.valeurs, C.valeurs, n, p);
+    fin = clock();
+    printf("Temps CPU : %.2f ms\n", (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
+    if ((n+p) < maxaff) 
+    {
+        printf("Résultat de la multiplication CPU:\n");
+        MatrixPrint(C.valeurs, n, p);
+    }
+
+    for (int i = 1; i <= n; i *= 2) {
+        MatrixInit0(C.valeurs, n, p);
+        debut = clock();
+        blocks = i;
+        thread = i;
+
+        multiGPU(blocks, thread, A.valeurs, B.valeurs, C.valeurs, n, p);
+
+        fin = clock();
+        printf("Temps GPU avec n = %i,p = %i : blocks, thread : %i, %i : %.2f ms\n",n,p, blocks, thread,   (double)(fin - debut) / CLOCKS_PER_SEC * 1000);
+        if ((n+p) < maxaff) {
+            printf("Résultat de la multiplication GPU:\n");
+            MatrixPrint(C.valeurs, n, p);
+        }
+    }
 
     free(A.valeurs);
     free(B.valeurs);
