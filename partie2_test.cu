@@ -1,33 +1,46 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-float*** create_3D_array(int N, int P, int L) {
+
+typedef struct {
+    float*** values;
+    int N;  
+    int P;  
+    int L;  
+} ThreeDArray;
+
+ThreeDArray init_3DArray() {
+    ThreeDArray arr = {NULL, 0, 0, 0};
+    return arr;
+}
+
+ThreeDArray create_3D_array(int N, int P, int L) {
     float*** tab = NULL;
     
     tab = (float***)malloc(N * sizeof(float**));
     
-    if (tab == NULL) {
+    /*if (tab == NULL) {
         printf("Erreur d'allocation pour la première dimension\n");
         return NULL;
-    }
+    }*/
     
 
     for (int i = 0; i < N; i++) {
         tab[i] = (float**)malloc(P * sizeof(float*));
         
-        if (tab[i] == NULL) {
+        /*if (tab[i] == NULL) {
             printf("Erreur d'allocation pour la deuxième dimension\n");
             while (i >= 0) {
                 free(tab[i]);
                 i--;
             }
             return NULL;
-        }
+        }*/
         
         for (int j = 0; j < P; j++) {
             tab[i][j] = (float*)malloc(L * sizeof(float));
             
-            if (tab[i][j] == NULL) {
+            /*if (tab[i][j] == NULL) {
                 printf("Erreur d'allocation pour la troisième dimension\n");
                 // Libérer les sous-tableaux déjà alloués
                 for (int k = i; k >= 0; k--) {
@@ -37,18 +50,23 @@ float*** create_3D_array(int N, int P, int L) {
                     free(tab[k]);
                 }
                 return NULL;
-            }
+            }*/
         }
     }
     
-    return tab;
+    ThreeDArray myArr = init_3DArray();
+    myArr.values = tab;
+    myArr.N = N;
+    myArr.P = P;
+    myArr.L = L;
+    return myArr;
 }
 
-void init_zero_3D_array(float*** tab, int n, int p, int l) {
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < p; j++) {
-            for (int k = 0; k < l; k++) {
-                tab[i][j][k] = 0;
+void init_zero_3D_array(ThreeDArray array) {
+    for (int i = 0; i < array.N; i++) {
+        for (int j = 0; j < array.P; j++) {
+            for (int k = 0; k < array.L; k++) {
+                array.values[i][j][k] = 0;
             }
         }
     }
@@ -58,11 +76,11 @@ int random_number(int min, int max) {
     return min + rand() % (max - min + 1);
 }
 
-void init_random_3D_array(float*** tableau, int n, int p, int l) {
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < p; j++) {
-            for (int k = 0; k < l; k++) {
-                tableau[i][j][k] = (float)(round((double)rand()/RAND_MAX  * 20 - 20));
+void init_random_3D_array(ThreeDArray array) {
+    for (int i = 0; i < array.N; i++) {
+        for (int j = 0; j < array.P; j++) {
+            for (int k = 0; k < array.L; k++) {
+                array.values[i][j][k] = (float)(round((double)rand()/RAND_MAX  * 20 - 20));
                 //tableau[i][j][k] = (float) random_number(-100, 100);
                 //printf("i : %i, j %i k %i : %f\n", i, j, k, tableau[i][j][k]);
             }
@@ -70,12 +88,12 @@ void init_random_3D_array(float*** tableau, int n, int p, int l) {
     }
 }
 
-void print_3D_array(float*** tab, int N, int P, int L) {
-    for (int i = 0; i < N; i++) {
+void print_3D_array(ThreeDArray array) {
+    for (int i = 0; i < array.N; i++) {
         printf("Dimension N (%d):\n", i);
-        for (int j = 0; j < P; j++) {
-            for (int k = 0; k < L; k++) {
-                printf("%10.2f ", (float)tab[i][j][k]);
+        for (int j = 0; j < array.P; j++) {
+            for (int k = 0; k < array.L; k++) {
+                printf("%10.2f ", (float) array.values[i][j][k]);
             }
             printf("\n");
         }
@@ -110,23 +128,24 @@ void destroy_3D_array(float*** tab, int n, int p, int l) {
     free(tab);
 }
 
-
 int main() {
-    float*** raw_data = create_3D_array(1, 32, 32);
-    init_random_3D_array(raw_data, 1, 32, 32);
 
-    float*** C1_data = create_3D_array(6, 28, 28);
-    init_zero_3D_array(C1_data, 6, 28, 28);
+    ThreeDArray myArr = init_3DArray();
 
-    float*** S1_data = create_3D_array(6, 14, 14);
-    init_zero_3D_array(S1_data, 6, 14, 14);
+    ThreeDArray raw_data = create_3D_array(1, 32, 32);
+    init_random_3D_array(raw_data);
+
+    ThreeDArray C1_data = create_3D_array(6, 28, 28);
+    init_zero_3D_array(C1_data);
+
+    ThreeDArray S1_data = create_3D_array(6, 14, 14);
+    init_zero_3D_array(S1_data);
     
-    float*** C1_kernel = create_3D_array(6, 5, 5);
-    init_zero_3D_array(S1_data,6, 5, 5);
+    ThreeDArray C1_kernel = create_3D_array(6, 5, 5);
+    init_zero_3D_array(C1_kernel);
 
 
-
-    print_3D_array(C1_kernel, 6, 5, 5);
+    print_3D_array(C1_kernel);
     
     return 0;
 }
