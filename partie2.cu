@@ -13,7 +13,69 @@ void MatrixInit(float *M, int n, int p) {
     }
 }
 
+__global__ void cudaConvolution2D(float *input, float *kernel, float *output, int input_width, int input_height, int kernel_size, int output_width, int output_height, int num_kernels) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
 
+    if (x < output_width && y < output_height) {
+        int kernel_radius = kernel_size / 2;
+        for (int k = 0; k < num_kernels; k++) {
+            float value = 0.0f;
+            for (int ky = -kernel_radius; ky <= kernel_radius; ky++) {
+                for (int kx = -kernel_radius; kx <= kernel_radius; kx++) {
+                    int ix = x + kx;
+                    int iy = y + ky;
+                    if (ix >= 0 && ix < input_width && iy >= 0 && iy < input_height) {
+                        value += input[(iy * input_width) + ix] * kernel[(k * kernel_size * kernel_size) + ((ky + kernel_radius) * kernel_size) + (kx + kernel_radius)];
+                    }
+                }
+            }
+            output[(k * output_width * output_height) + (y * output_width) + x] = value;
+        }
+    }
+}
+
+
+
+
+int main(int argc, char *argv[]) {
+    int nn=atoi(argv[1]);
+    int pp=atoi(argv[1]);
+    srand(time(NULL)); // Initialisation du générateur de nombres aléatoires
+    const int n = nn;//10000;
+    const int p = pp;//10000;
+    const int maxaff = 10;
+
+    int blocks = 1;
+    int thread = 1;
+    clock_t debut, fin;
+
+    // Allocation de mémoire pour les matrices
+    struct Matrice A, B, C;
+    A.lignes = n;
+    A.colonnes = p;
+    B.lignes = n;
+    B.colonnes = p;
+    C.lignes = n;
+    C.colonnes = p;
+
+
+    A.valeurs = (float*)malloc(n*p * sizeof(float));
+    B.valeurs = (float*)malloc(n*p * sizeof(float));
+    C.valeurs = (float*)malloc(n*p * sizeof(float));
+
+    //initialisation
+    MatrixInit(A.valeurs, 32, 32);
+    MatrixInit(B.valeurs, 32, 32);
+   
+
+    free(A.valeurs);
+    free(B.valeurs);
+    free(C.valeurs);
+
+    cudaDeviceSynchronize();
+    return 0;
+}
 
 
 
@@ -67,8 +129,6 @@ __global__ void cudaPooling2D(float *input, float *output, int input_width, int 
     if (x < output_width && y < output_height) {
         float sum = 0.0f;
         int count = 0;
-        
-        // Moyennage d'un bloc 2x2
         for (int ky = 0; ky < 2; ky++) {
             for (int kx = 0; kx < 2; kx++) {
                 int ix = x * 2 + kx;
