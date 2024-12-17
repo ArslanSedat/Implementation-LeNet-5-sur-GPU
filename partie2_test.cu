@@ -1,68 +1,59 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <cuda_runtime.h>
+#include <cfloat>
 
 
 typedef struct {
-    float*** values;
+    float* values;
     int N;  
     int P;  
     int L;  
 } ThreeDArray;
 
-ThreeDArray init_3DArray() {
-    ThreeDArray arr = {NULL, 0, 0, 0};
+ThreeDArray* init_3DArray() {
+    ThreeDArray* arr = (ThreeDArray*)malloc(sizeof(ThreeDArray));
+    if (arr == NULL) {
+        fprintf(stderr, "Error allocating memory for ThreeDArray structure\n");
+        exit(1);
+    }
+    arr->N = 0;
+    arr->P = 0;
+    arr->L = 0;
+    arr->values = NULL;
+
     return arr;
 }
 
-ThreeDArray create_3D_array(int N, int P, int L) {
-    float*** tab = NULL;
-    
-    tab = (float***)malloc(N * sizeof(float**));
-    /*if (tab == NULL) {
-        printf("Erreur d'allocation pour la première dimension\n");
-        return NULL;
-    }*/
-    for (int i = 0; i < N; i++) {
-        tab[i] = (float**)malloc(P * sizeof(float*));
-        /*if (tab[i] == NULL) {
-            printf("Erreur d'allocation pour la deuxième dimension\n");
-            while (i >= 0) {
-                free(tab[i]);
-                i--;
-            }
-            return NULL;
-        }*/
-        for (int j = 0; j < P; j++) {
-            tab[i][j] = (float*)malloc(L * sizeof(float));
-            /*if (tab[i][j] == NULL) {
-                printf("Erreur d'allocation pour la troisième dimension\n");
-                // Libérer les sous-tableaux déjà alloués
-                for (int k = i; k >= 0; k--) {
-                    for (int l = P - 1; l >= 0; l--) {
-                        free(tab[k][l]);
-                    }
-                    free(tab[k]);
-                }
-                return NULL;
-            }*/
-        }
+ThreeDArray* create_3D_array(int N, int P, int L) {
+    // Allouer de la mémoire pour la structure ThreeDArray
+    ThreeDArray* arr = (ThreeDArray*)malloc(sizeof(ThreeDArray));
+    if (arr == NULL) {
+        fprintf(stderr, "Error allocating memory for ThreeDArray structure\n");
+        exit(1);
     }
-    
-    ThreeDArray myArr = init_3DArray();
-    myArr.values = tab;
-    myArr.N = N;
-    myArr.P = P;
-    myArr.L = L;
-    return myArr;
+
+    arr->N = N;
+    arr->P = P;
+    arr->L = L;
+
+    arr->values = (float*)malloc(N * P * L * sizeof(float));
+    if (arr->values == NULL) {
+        fprintf(stderr, "Error allocating memory for the 3D array values\n");
+        exit(1);
+    }
+
+    return arr;
 }
 
-void init_zero_3D_array(ThreeDArray array) {
-    for (int i = 0; i < array.N; i++) {
-        for (int j = 0; j < array.P; j++) {
-            for (int k = 0; k < array.L; k++) {
-                array.values[i][j][k] = 0;
-            }
-        }
+void init_zero_3D_array(ThreeDArray *array) {
+    // Vérifier si le tableau est valide
+    if (array == NULL || array->values == NULL) {
+        printf("Array is empty or not initialized.\n");
+        return;
+    }
+    for (int i = 0; i < array->N * array->P * array->L; i++) {
+        array->values[i] = 0.0;
     }
 }
 
@@ -70,339 +61,254 @@ int random_number(int min, int max) {
     return min + rand() % (max - min + 1);
 }
 
-void init_random_3D_array(ThreeDArray array) {
-    for (int i = 0; i < array.N; i++) {
-        for (int j = 0; j < array.P; j++) {
-            for (int k = 0; k < array.L; k++) {
-                array.values[i][j][k] = (float)(round((double)rand()/RAND_MAX  * 20 - 20));
-                //tableau[i][j][k] = (float) random_number(-100, 100);
-                //printf("i : %i, j %i k %i : %f\n", i, j, k, tableau[i][j][k]);
-            }
-        }
+void init_random_3D_array(ThreeDArray* array) {
+    if (array == NULL || array->values == NULL) {
+        printf("Array is empty or not initialized.\n");
+        return;
+    }
+
+    srand(time(NULL));
+
+    for (int i = 0; i < array->N * array->P * array->L; i++) {
+        // Calcul d'un nombre aléatoire entre -20 et 20
+        array->values[i] = (float)(rand() % 10 - 5); // -20 à 20 inclus
     }
 }
 
-void print_3D_array(ThreeDArray array) {
-    for (int i = 0; i < array.N; i++) {
-        printf("Dimension N (%d):\n", i);
-        for (int j = 0; j < array.P; j++) {
-            for (int k = 0; k < array.L; k++) {
-                printf("%10.2f ", (float) array.values[i][j][k]);
-            }
-            printf("\n");
-        }
-        printf("\n");
+void init_a_value(ThreeDArray* array, float value) {
+    if (array == NULL || array->values == NULL) {
+        printf("Array is empty or not initialized.\n");
+        return;
+    }
+    for (int i = 0; i < array->N * array->P * array->L; i++) {
+        array->values[i] = value; // -20 à 20 inclus
     }
 }
 
-void destroy_3DArray(ThreeDArray* arr) {
-    if (arr && arr->values) {
-        // Libérer chaque sous-tableau
-        for (int i = 0; i < arr->N; i++) {
-            if (arr->values[i]) {
-                for (int j = 0; j < arr->P; j++) {
-                    if (arr->values[i][j]) {
-                        free(arr->values[i][j]);
+void print_3D_array(ThreeDArray* array) {
+    if (array == NULL || array->values == NULL) {
+        printf("Array is empty or not initialized.\n");
+        return;
+    }
+
+    // Boucles pour parcourir le tableau 3D (N x P x L)
+    for (int i = 0; i < array->N; i++) {
+        for (int j = 0; j < array->P; j++) {
+            for (int k = 0; k < array->L; k++) {
+                // Calculer l'index dans la représentation 1D
+                int index = i * array->P * array->L + j * array->L + k;
+                printf("%10.2f ", array->values[index]);
+            }
+            printf("\n");  // Nouvelle ligne après chaque ligne P
+        }
+        printf("\n");  // Nouvelle ligne après chaque plan N
+    }
+    printf("//\n");
+}
+
+void free_3DArray(ThreeDArray* arr) {
+    if (arr != NULL) {
+        if (arr->values != NULL) {
+            free(arr->values); // Libérer les données de values si elles ont été allouées
+        }
+        free(arr); // Libérer la structure elle-même
+    }
+}
+
+__global__ void cudaConvolution2D(float *images, float *kernel, float *output, 
+                                   int AN, int AL, int AP, 
+                                   int BN, int BL, int BP,
+                                    int CL, int CP, int stride = 1) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int maxtid = blockDim.x;
+
+    int size = max(AN*CL*CP/maxtid,1) ;
+    float temp;
+    int i,j;
+
+    int outHeight = (AL - BL) / 1 + 1;
+    int outWidth = (AP - BP) / 1 + 1;
+
+    for (int kk = tid * size; kk <= (tid+1) * size; kk++) {
+        if (true) { //(kk < AN * outHeight * outWidth) 
+            int imageIdx = kk / (outHeight * outWidth);  // Indice de l'image
+            int remaining = kk % (outHeight * outWidth);
+            int outRow = remaining / outWidth;  // Ligne de la sortie
+            int outCol = remaining % outWidth; // Colonne de la sortie
+
+            int startRow = outRow * stride;
+            int startCol = outCol * stride;
+
+            float sum = 0.0f;
+
+            for (i = 0; i < BL; i++) {
+                for (j = 0; j < BP; j++) {
+                    int rowIdx = startRow + i;
+                    int colIdx = startCol + j;
+
+                    if (rowIdx < AL && colIdx < AP) { //
+                        int imgIndex = imageIdx * AL * AP + rowIdx * AP + colIdx;
+                        int kernelIndex = i * BP + j;
+                        sum += images[imgIndex] * kernel[kernelIndex]; // Produit scalaire
                     }
                 }
-                free(arr->values[i]);
             }
+            int outputIndex = imageIdx * outHeight * outWidth + outRow * outWidth + outCol;
+            output[outputIndex] = sum;
         }
-        
-        // Libérer le tableau principal
-        free(arr->values);
     }
-    
-    // Réinitialiser les champs
-    arr->values = NULL;
-    arr->N = 0;
-    arr->P = 0;
-    arr->L = 0;
 }
 
+void cudaConvolution2D_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* B, ThreeDArray* C) {
+    float *cuda_A, *cuda_B, *cuda_C;
 
+    int outHeight = (A->L - B->L) / 1 + 1;  // Hauteur de la sortie (sans padding)
+    int outWidth = (A->P - B->P) / 1 + 1;   // Largeur de la sortie (sans padding)
 
- /*
-__global__ void cudaConvolution2D(ThreeDArray *input, ThreeDArray *kernel, ThreeDArray *output) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    output->values[0][0][0] = 9;
-   
-    if (x < output->N && y < output->P) {
-        int kernel_radius = kernel->L / 2;
-        for (int k = 0; k < output->N; k++) {
-            float value = 0.0f;
-            for (int ky = -kernel_radius; ky <= kernel_radius; ky++) {
-                for (int kx = -kernel_radius; kx <= kernel_radius; kx++) {
-                    int ix = x + kx;
-                    int iy = y + ky;
-                    if (ix >= 0 && ix < input->N && iy >= 0 && iy < input->P) {
-                        value += 1;//input.values[k][iy][ix] * kernel.values[0][(ky + kernel_radius) * kernel.L + kx + kernel_radius];
+    if (C->values != NULL) {
+        free(C->values);
+    }
+    C->values = (float*)malloc(A->N * outHeight * outWidth * sizeof(float));
+
+    cudaMalloc((void**)&cuda_A, A->N * A->L * A->P * sizeof(float));
+    cudaMalloc((void**)&cuda_B, B->L * B->P * sizeof(float));  // Noyau
+    cudaMalloc((void**)&cuda_C, A->N * outHeight * outWidth * sizeof(float));  // Résultat
+
+    cudaMemcpy(cuda_A, A->values, A->N * A->L * A->P * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(cuda_B, B->values, B->L * B->P * sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaConvolution2D<<<blocks, thread>>>(cuda_A, cuda_B, cuda_C, 
+                                         A->N, A->L, A->P, 
+                                         B->N, B->L, B->P,
+                                         outHeight, outWidth, 1);
+
+    cudaMemcpy(C->values, cuda_C, A->N * outHeight * outWidth * sizeof(float), cudaMemcpyDeviceToHost);
+
+    C->N = A->N;
+    C->L = outHeight;
+    C->P = outWidth;
+
+    cudaFree(cuda_A);
+    cudaFree(cuda_B);
+    cudaFree(cuda_C);
+
+}
+
+__global__ void avgPooling2D(float *images, float *output, 
+                              int N, int L, int P, 
+                              int stride = 2) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Taille de la portion de travail pour chaque thread
+    int size = max(N * L * P / blockDim.x, 1);
+    
+    int i, j;
+
+    // Taille de l'image de sortie après pooling
+    int outHeight = L / stride;
+    int outWidth = P / stride;
+
+    // Parcourir chaque pixel de l'image de sortie
+    for (int kk = tid * size; kk <= (tid + 1) * size; kk++) {
+        if (kk < N * outHeight * outWidth) {
+            int imageIdx = kk / (outHeight * outWidth);  // Indice de l'image
+            int remaining = kk % (outHeight * outWidth);
+            int outRow = remaining / outWidth;  // Ligne de la sortie
+            int outCol = remaining % outWidth; // Colonne de la sortie
+
+            float sum = 0.0f;
+
+            // Moyenne d'un bloc 2x2
+            for (i = 0; i < stride; i++) {
+                for (j = 0; j < stride; j++) {
+                    int rowIdx = outRow * stride + i;
+                    int colIdx = outCol * stride + j;
+
+                    // Vérifier que les indices sont dans les limites
+                    if (rowIdx < L && colIdx < P) {
+                        int imgIndex = imageIdx * L * P + rowIdx * P + colIdx;
+                        sum += images[imgIndex];
                     }
                 }
             }
-            output->values[k][y][x] = 9;//value;
+
+            // Calculer la moyenne du bloc
+            float avg = sum / (stride * stride);
+
+            // Affecter la valeur moyenne à l'image de sortie
+            int outputIndex = imageIdx * outHeight * outWidth + outRow * outWidth + outCol;
+            output[outputIndex] = avg;
         }
     }
 }
-*/
 
+void AvgPooling_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* C) {
+    float *cuda_A, *cuda_B, *cuda_C;
 
-__global__ void cudaConvolution2D(ThreeDArray* input, ThreeDArray* kernel, ThreeDArray* output) {
-    // Calcul des indices de thread
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    int z = blockIdx.z * blockDim.z + threadIdx.z;
+    ThreeDArray* B = create_3D_array(1, 2, 2);
+    init_a_value(B, 1);
+    //init_random_3D_array(B);
+    int stride = 2;
+    int outHeight = (A->L - B->L) / stride + 1;  //stride == 2
+    int outWidth = (A->P - B->P) / stride + 1;   // stride == 2
 
-    // Assurez-vous que les indices sont dans les limites de la matrice de sortie
-    if (x < output->L && y < output->P && z < output->N) {
-        // Calcul de l'index linéaire dans le tableau aplati
-        int index = z * output->P * output->L + y * output->L + x;
-
-        // Initialiser la valeur à 9.0f
-        output->values[0][0][0] = 9.0f;
+    if (C->values != NULL) {
+        free(C->values);
     }
+    C->values = (float*)malloc(A->N * outHeight * outWidth * sizeof(float));
+
+    cudaMalloc((void**)&cuda_A, A->N * A->L * A->P * sizeof(float));
+    cudaMalloc((void**)&cuda_B, B->L * B->P * sizeof(float)); 
+    cudaMalloc((void**)&cuda_C, A->N * outHeight * outWidth * sizeof(float));
+
+    cudaMemcpy(cuda_A, A->values, A->N * A->L * A->P * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(cuda_B, B->values, B->L * B->P * sizeof(float), cudaMemcpyHostToDevice);
+
+    avgPooling2D<<<blocks, thread>>>(cuda_A, cuda_C, 
+                                         A->N, A->L, A->P, stride);
+
+    cudaMemcpy(C->values, cuda_C, A->N * outHeight * outWidth * sizeof(float), cudaMemcpyDeviceToHost);
+
+    C->N = A->N;
+    C->L = outHeight;
+    C->P = outWidth;
+
+    cudaFree(cuda_A);
+    cudaFree(cuda_B);
+    cudaFree(cuda_C);
+    free_3DArray(B);
 }
-
-
-
-/*
-ThreeDArray* createGPUArray(ThreeDArray A) {
-    ThreeDArray* arr = (ThreeDArray*)malloc(sizeof(ThreeDArray));
-    arr->N = A.N;
-    arr->P = A.P;
-    arr->L = A.L;
-
-    cudaMalloc((void**)&arr->values, arr->N * sizeof(float**));
-    for (int i = 0; i < arr->N; i++) {
-        cudaMalloc((void**)&arr->values[i], arr->P * sizeof(float*));
-        for (int j = 0; j < arr->P; j++) {
-            cudaMalloc((void**)&arr->values[i][j], arr->L * sizeof(float));
-        }
-    }
-
-    return arr;
-}
-*/
-
-
-ThreeDArray* createGPUArray(ThreeDArray A) {
-   ThreeDArray* arr = (ThreeDArray*)malloc(sizeof(ThreeDArray));
-    arr->N = A.N;
-    arr->P = A.P;
-    arr->L = A.L;
-    printf("test : \n");
-    cudaMalloc((void**)&arr->values, arr->N * sizeof(float**));
-    for (int i = 0; i < arr->N; i++) {
-        cudaMalloc((void**)&arr->values[i], arr->P * sizeof(float*));
-        for (int j = 0; j < arr->P; j++) {
-            cudaMalloc((void**)&arr->values[i][j], arr->L * sizeof(float));
-        }
-    }
-    printf("test : \n");
-    printf("f %f\n", arr->values[0][0][0] );
-    return arr;
-}
-
-/*
-printf("test : \n");
-printf("f %f\n", arr->values[0][0][0] );
-*/
-
-/*
-void copyCPUtoGPU(ThreeDArray cpuArr, ThreeDArray* gpuArr) {
-    cudaDeviceSynchronize();
-    for (int i = 0; i < cpuArr.N; i++) {
-        for (int j = 0; j < cpuArr.P; j++) {
-            cudaMemcpy(gpuArr->values[i][j], cpuArr.values[i][j], sizeof(float) * cpuArr.L, cudaMemcpyHostToDevice);
-        }
-    }
-}
-*/
-
-void copyCPUtoGPU(ThreeDArray cpuArr, ThreeDArray* gpuArr) {
-    cudaDeviceSynchronize();
-
-    for (int i = 0; i < cpuArr.N; i++) {
-        float** gpuLevel2;
-        cudaMemcpy(&gpuLevel2, &gpuArr->values[i], sizeof(float**), cudaMemcpyDeviceToHost);
-        for (int j = 0; j < cpuArr.P; j++) {
-            float* gpuLevel3;
-            cudaMemcpy(&gpuLevel3, &gpuLevel2[j], sizeof(float*), cudaMemcpyDeviceToHost);
-            cudaMemcpy(gpuLevel3, cpuArr.values[i][j], sizeof(float) * cpuArr.L, cudaMemcpyHostToDevice);
-        }
-    }
-    cudaDeviceSynchronize();
-}
-
-/*
-void copyGPUtoCPU(ThreeDArray* gpuArr, ThreeDArray cpuArr) {
-    cudaDeviceSynchronize();
-    
-    // Copie du tableau 3D
-    for (int i = 0; i < gpuArr->N; i++) {
-        for (int j = 0; j < gpuArr->P; j++) {
-            cudaMemcpy(cpuArr.values[i][j], gpuArr->values[i][j], sizeof(float) * gpuArr->L, cudaMemcpyDeviceToHost);
-        }
-    }
-}
-*/
-
-/*
-void copyGPUtoCPU(ThreeDArray* gpuArr, ThreeDArray cpuArr) {
-    cudaDeviceSynchronize();
-    for (int i = 0; i < gpuArr->N; i++) {
-        float** gpuLevel2;
-        cudaMemcpy(&gpuLevel2, &gpuArr->values[i], sizeof(float**), cudaMemcpyDeviceToHost);
-
-        for (int j = 0; j < gpuArr->P; j++) {
-            float* gpuLevel3;
-            cudaMemcpy(&gpuLevel3, &gpuLevel2[j], sizeof(float*), cudaMemcpyDeviceToHost);
-            cudaMemcpy(cpuArr.values[i][j], gpuLevel3, sizeof(float) * gpuArr->L, cudaMemcpyDeviceToHost);
-        }
-    }
-
-    cudaDeviceSynchronize();
-}
-*/
-/**/
-void copyGPUtoCPU(ThreeDArray* gpuArr, ThreeDArray cpuArr) {
-    // Copier les dimensions de gpuArr vers cpuArr
-    cpuArr.N = gpuArr->N;
-    cpuArr.P = gpuArr->P;
-    cpuArr.L = gpuArr->L;
-
-    cpuArr.values = (float***)malloc(cpuArr.N * sizeof(float**));
-    for (int i = 0; i < cpuArr.N; i++) {
-        cpuArr.values[i] = (float**)malloc(cpuArr.P * sizeof(float*));
-        for (int j = 0; j < cpuArr.P; j++) {
-            cpuArr.values[i][j] = (float*)malloc(cpuArr.L * sizeof(float));
-        }
-    }
-    
-    // Copier les données depuis le GPU vers le CPU
-    for (int i = 0; i < gpuArr->N; i++) {
-        for (int j = 0; j < gpuArr->P; j++) {
-            printf("copie i : %i, j : %i\n",i, j);
-            printf("f : %f\n",cpuArr.values[i][j][0]);
-            cudaMemcpy(cpuArr.values[i][j], gpuArr->values[i][j], cpuArr.L * sizeof(float), cudaMemcpyDeviceToHost);
-        }
-    }
-    //return cpuArr;  // Retourne l'objet modifié
-}
-
-
-
-
-/*
-void freeGPUArray(ThreeDArray* arr) {
-    if (arr != NULL) {
-        for (int i = 0; i < arr->N; i++) {
-            for (int j = 0; j < arr->P; j++) {
-                cudaFree(arr->values[i][j]);
-            }
-            cudaFree(&arr->values[i]);
-        }
-        cudaFree(arr->values);
-        free(arr);
-    }
-}
-*/
-
-void freeGPUArray(ThreeDArray* arr) {
-    if (arr != NULL) {
-        // Libération des niveaux 3 (float*)
-        for (int i = 0; i < arr->N; i++) {
-            float** gpuLevel2;
-            cudaMemcpy(&gpuLevel2, &arr->values[i], sizeof(float**), cudaMemcpyDeviceToHost);
-
-            for (int j = 0; j < arr->P; j++) {
-                float* gpuLevel3;
-                cudaMemcpy(&gpuLevel3, &gpuLevel2[j], sizeof(float*), cudaMemcpyDeviceToHost);
-                cudaFree(gpuLevel3); // Libération des float*
-            }
-
-            // Libération des niveaux 2 (float**)
-            cudaFree(gpuLevel2);
-        }
-
-        // Libération du niveau 1 (float***)
-        cudaFree(arr->values);
-
-        // Libération de la structure elle-même
-        free(arr);
-    }
-}
-
-
-void multiGPU(int blocks, int thread, ThreeDArray A, ThreeDArray B, ThreeDArray C) {
-    float *cuda_A, *cuda_B, *cuda_C; 
-    
-    cudaMalloc((void**)&cuda_A, A.N*A.P*A.L * sizeof(float));
-    cudaMalloc((void**)&cuda_B, B.N*B.P*B.L * sizeof(float));
-    cudaMalloc((void**)&cuda_C, C.N*C.P*C.L * sizeof(float));
-
-    cudaMemcpy(cuda_A, A.values, sizeof(float) * A.N*A.P*A.L, cudaMemcpyHostToDevice);
-    cudaMemcpy(cuda_B, B.values, sizeof(float) * B.N*B.P*B.L, cudaMemcpyHostToDevice);
-
-
-    /*
-    A_cuda = createGPUArray(A);
-    B_cuda = createGPUArray(B);
-    C_cuda = createGPUArray(C);
-
-    copyCPUtoGPU(A, A_cuda);
-    copyCPUtoGPU(B, B_cuda);
-    copyCPUtoGPU(C, C_cuda);
-
-    //cudaConvolution2D<<<blocks, thread>>>(A_cuda, B_cuda, C_cuda);
-
-    printf("haaa\n");
-    copyGPUtoCPU(C_cuda, C);
-    //print_3D_array(C);
-
-    freeGPUArray(A_cuda);
-    freeGPUArray(B_cuda);
-    freeGPUArray(C_cuda);
-    */
-}
-
-
 
 int main() {
+    ThreeDArray* A = create_3D_array(1, 8, 8);
+    ThreeDArray* B = create_3D_array(1, 1, 1);
+    ThreeDArray* C = create_3D_array(2, 4, 4);
 
-    ThreeDArray myArr = init_3DArray();
+    init_random_3D_array(A);
+    init_random_3D_array(B);
 
-    ThreeDArray raw_data = create_3D_array(1, 32, 32);
-    init_random_3D_array(raw_data);
+    print_3D_array(A);
+    print_3D_array(B);
 
-    ThreeDArray C1_data = create_3D_array(6, 28, 28);
-    init_zero_3D_array(C1_data);
-
-    ThreeDArray S1_data = create_3D_array(6, 14, 14);
-    init_zero_3D_array(S1_data);
-    
-    ThreeDArray C1_kernel = create_3D_array(6, 5, 5);
-    init_zero_3D_array(C1_kernel);
-
-
-    
-
-    ThreeDArray C = create_3D_array(1, 7, 7);
-    init_random_3D_array(C);
+    cudaConvolution2D_GPU(10,10,A, B, C);
     print_3D_array(C);
 
-    ThreeDArray K = create_3D_array(1, 1, 1);
-    init_random_3D_array(K);
-    print_3D_array(K);
+    AvgPooling_GPU(10,10,A, C);
+    print_3D_array(C);
+    /*
+    ThreeDArray* B = create_3D_array(1, 8, 2);
+    ThreeDArray* C = create_3D_array(2, 1, 4);
+    print_3D_array(A);
+    init_random_3D_array(B);
+    print_3D_array(B);
+    init_zero_3D_array(C);
+    print_3D_array(C);
+    
+    multiGPU(1, 1, A,  B, C);
 
-    ThreeDArray P = create_3D_array(1, 7, 7);
-    init_zero_3D_array(P);
-    print_3D_array(P);
-
-    //cudaConvolution2D<<<2, 2>>>(C, K, P, P.va);
-    multiGPU(2, 2, C, K, P);
-    print_3D_array(P);
+    printf("matrice C : \n");
+    print_3D_array(C);
+    */
 
     return 0;
 }
