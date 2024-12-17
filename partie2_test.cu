@@ -194,6 +194,86 @@ void cudaConvolution2D_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* 
 
 }
 
+__global__ void cudaConvolution2D_V2(float *images, float *kernel, float *output, 
+                                   int AN, int AL, int AP, 
+                                   int BN, int BL, int BP,
+                                    int CL, int CP, int stride = 1) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int maxtid = blockDim.x;
+
+    int size = max(AN*CL*CP/maxtid,1) ;
+    float temp;
+    int i,j,k;
+
+    int outHeight = (AL - BL) / 1 + 1;
+    int outWidth = (AP - BP) / 1 + 1;
+
+    for (int kk = tid * size; kk < (tid+1) * size; kk++) {
+        if (true) { //(kk < AN * outHeight * outWidth) 
+            int imageIdx = kk / (outHeight * outWidth);  // Indice de l'image
+            int remaining = kk % (outHeight * outWidth);
+            int outRow = remaining / outWidth;  // Ligne de la sortie
+            int outCol = remaining % outWidth; // Colonne de la sortie
+
+            int startRow = outRow * stride;
+            int startCol = outCol * stride;
+
+            float sum = 0.0f;
+            for (k = 0; k < AN; k++) {
+                for (j = 0; j < BL; j++) {
+                    for (i = 0; i < BP; i++) {
+                        
+                        int rowIdx = startRow + i;
+                        int colIdx = startCol + j;
+
+                        if (rowIdx < AL && colIdx < AP) {
+                            int imgIndex = imageIdx * AL * AP + rowIdx * AP + colIdx;
+                            int kernelIndex = k *AN*BL + BL*j+ i;
+                            sum += images[imgIndex] * kernel[kernelIndex]; // Produit scalaire
+                        }
+                    }
+                }
+            }
+            int outputIndex = imageIdx * outHeight * outWidth + outRow * outWidth + outCol;
+            output[outputIndex] = sum;
+        }
+    }
+}
+
+void cudaConvolution2D_GPU_V2(int blocks, int thread, ThreeDArray* A, ThreeDArray* B, ThreeDArray* C) {
+    float *cuda_A, *cuda_B, *cuda_C;
+
+    int outHeight = (A->L - B->L) / 1 + 1;  // Hauteur de la sortie (sans padding)
+    int outWidth = (A->P - B->P) / 1 + 1;   // Largeur de la sortie (sans padding)
+
+    if (C->values != NULL) {
+        free(C->values);
+    }
+    C->values = (float*)malloc(A->N * outHeight * outWidth * sizeof(float));
+
+    cudaMalloc((void**)&cuda_A, A->N * A->L * A->P * sizeof(float));
+    cudaMalloc((void**)&cuda_B, B->L * B->P * sizeof(float));  // Noyau
+    cudaMalloc((void**)&cuda_C, A->N * outHeight * outWidth * sizeof(float));  // Résultat
+
+    cudaMemcpy(cuda_A, A->values, A->N * A->L * A->P * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(cuda_B, B->values, B->L * B->P * sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaConvolution2D_V2<<<blocks, thread>>>(cuda_A, cuda_B, cuda_C, 
+                                         A->N, A->L, A->P, 
+                                         B->N, B->L, B->P,
+                                         outHeight, outWidth, 1);
+
+    cudaMemcpy(C->values, cuda_C, A->N * outHeight * outWidth * sizeof(float), cudaMemcpyDeviceToHost);
+
+    C->N = A->N;
+    C->L = outHeight;
+    C->P = outWidth;
+
+    cudaFree(cuda_A);
+    cudaFree(cuda_B);
+    cudaFree(cuda_C);
+}
+
 __global__ void avgPooling2D(float *images, float *output, 
                               int N, int L, int P, 
                               int stride = 2) {
@@ -245,12 +325,9 @@ __global__ void avgPooling2D(float *images, float *output,
 void AvgPooling_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* C) {
     float *cuda_A, *cuda_B, *cuda_C;
 
-    ThreeDArray* B = create_3D_array(1, 2, 2);
-    init_a_value(B, 1);
-    //init_random_3D_array(B);
     int stride = 2;
-    int outHeight = (A->L - B->L) / stride + 1;  //stride == 2
-    int outWidth = (A->P - B->P) / stride + 1;   // stride == 2
+    int outHeight = (A->L - 2) / stride + 1;  //stride == 2
+    int outWidth = (A->P - 2) / stride + 1;   // stride == 2
 
     if (C->values != NULL) {
         free(C->values);
@@ -258,11 +335,9 @@ void AvgPooling_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* C) {
     C->values = (float*)malloc(A->N * outHeight * outWidth * sizeof(float));
 
     cudaMalloc((void**)&cuda_A, A->N * A->L * A->P * sizeof(float));
-    cudaMalloc((void**)&cuda_B, B->L * B->P * sizeof(float)); 
     cudaMalloc((void**)&cuda_C, A->N * outHeight * outWidth * sizeof(float));
 
     cudaMemcpy(cuda_A, A->values, A->N * A->L * A->P * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(cuda_B, B->values, B->L * B->P * sizeof(float), cudaMemcpyHostToDevice);
 
     avgPooling2D<<<blocks, thread>>>(cuda_A, cuda_C, 
                                          A->N, A->L, A->P, stride);
@@ -274,15 +349,55 @@ void AvgPooling_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* C) {
     C->P = outWidth;
 
     cudaFree(cuda_A);
-    cudaFree(cuda_B);
     cudaFree(cuda_C);
-    free_3DArray(B);
+}
+
+__global__ void tanh_(float *M1, float *Mout, int n, int l, int p) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int maxtid = blockDim.x;
+
+    int size = min(n*p*l/maxtid,1) ;
+
+    for (int i = (tid)*size; i < (tid+1)*size ; i++) { //tid * size_per_thread //((tid + 1) * size_per_thread)
+        if (i < n*p*l)
+            Mout[i] = tanhf(M1[i]); //size; //tid * 100 + i;
+    }
+}
+
+void tanh_GPU(int blocks, int thread, ThreeDArray* A, ThreeDArray* C) {
+    float *cuda_A, *cuda_B, *cuda_C;
+
+    int stride = 2;
+    int outHeight = A->L;  //stride == 2
+    int outWidth = A->P;   // stride == 2
+
+    if (C->values != NULL) {
+        free(C->values);
+    }
+    C->values = (float*)malloc(A->N * outHeight * outWidth * sizeof(float));
+
+    cudaMalloc((void**)&cuda_A, A->N * A->L * A->P * sizeof(float));
+    cudaMalloc((void**)&cuda_C, A->N * outHeight * outWidth * sizeof(float));
+
+    cudaMemcpy(cuda_A, A->values, A->N * A->L * A->P * sizeof(float), cudaMemcpyHostToDevice);
+
+    tanh_<<<blocks, thread>>>(cuda_A, cuda_C, A->N, A->L, A->P);
+
+    cudaMemcpy(C->values, cuda_C, A->N * outHeight * outWidth * sizeof(float), cudaMemcpyDeviceToHost);
+
+    C->N = A->N;
+    C->L = outHeight;
+    C->P = outWidth;
+
+    cudaFree(cuda_A);
+    cudaFree(cuda_C);
 }
 
 int main() {
-    ThreeDArray* A = create_3D_array(1, 8, 8);
-    ThreeDArray* B = create_3D_array(1, 1, 1);
-    ThreeDArray* C = create_3D_array(2, 4, 4);
+    ThreeDArray* A = create_3D_array(2, 4, 4);
+    ThreeDArray* B = create_3D_array(2, 1, 1);
+    ThreeDArray* C = create_3D_array(2, 2, 2);
+    ThreeDArray* rslt = create_3D_array(2, 2, 2);
 
     init_random_3D_array(A);
     init_random_3D_array(B);
@@ -290,11 +405,18 @@ int main() {
     print_3D_array(A);
     print_3D_array(B);
 
-    cudaConvolution2D_GPU(10,10,A, B, C);
+    printf("convolution : \n");
+    cudaConvolution2D_GPU_V2(10,10,A, B, rslt);
+    print_3D_array(rslt);
+
+    printf("tanh : \n");
+    tanh_GPU(10,10,rslt, C);
     print_3D_array(C);
 
-    AvgPooling_GPU(10,10,A, C);
-    print_3D_array(C);
+    printf("avgpooling : \n");
+    AvgPooling_GPU(10,10,C, rslt);
+    print_3D_array(rslt);
+
     /*
     ThreeDArray* B = create_3D_array(1, 8, 2);
     ThreeDArray* C = create_3D_array(2, 1, 4);
